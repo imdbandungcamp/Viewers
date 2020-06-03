@@ -74,7 +74,6 @@ class ViewerLocalFileData extends Component {
     const { params } = this.props.match
     const urlParam = queryString.parse(this.props.location.search.replace('?', ''))
     const { kind, region, bucket, stsToken, accessKeyId, accessKeySecret } = urlParam
-    console.log(urlParam)
     if (params) {
       let { imgUrl } = params
       imgUrl = imgUrl.replace(this.props.location.search, '')
