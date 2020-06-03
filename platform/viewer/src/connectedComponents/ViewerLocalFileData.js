@@ -1,4 +1,4 @@
-import React, { Component, useContext } from 'react';
+import React, { Component } from 'react';
 import { metadata, utils } from '@ohif/core';
 
 import ConnectedViewer from './ConnectedViewer.js';
@@ -74,6 +74,7 @@ class ViewerLocalFileData extends Component {
     const { params } = this.props.match
     const urlParam = queryString.parse(this.props.location.search.replace('?', ''))
     const { kind, region, bucket, stsToken, accessKeyId, accessKeySecret } = urlParam
+    console.log(urlParam)
     if (params) {
       let { imgUrl } = params
       imgUrl = imgUrl.replace(this.props.location.search, '')
@@ -138,11 +139,22 @@ class ViewerLocalFileData extends Component {
                     }
                   })
                   return Promise.resolve(objects)
+                }).catch(() => {
+                  this.setState({
+                    loadingProgress: {
+                      ...this.state.loadingProgress,
+                      progress: ++count
+                    }
+                  })
+                  return Promise.resolve(null)
                 })
               })).then(objects => {
-                const contents = objects.map(object => {
-                  const blobFile = new Blob([object.content])
-                  return new File([blobFile], 'name')
+                const contents = []
+                objects && objects.forEach(object => {
+                  if (object) {
+                    const blobFile = new Blob([object.content])
+                    contents.push(new File([blobFile], 'name'))
+                  }
                 })
 
                 return filesToStudies(contents);
