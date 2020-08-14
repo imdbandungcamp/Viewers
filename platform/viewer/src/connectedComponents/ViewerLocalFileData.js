@@ -9,6 +9,7 @@ import filesToStudies from '../lib/filesToStudies';
 import './ViewerLocalFileData.css';
 import { withTranslation } from 'react-i18next';
 import axios from 'axios';
+import jsonp from 'jsonp';
 import OSS from 'ali-oss';
 import queryString from 'querystring';
 import AppContext from '../context/AppContext';
@@ -73,7 +74,7 @@ class ViewerLocalFileData extends Component {
   componentDidMount () {
     const { params } = this.props.match
     const urlParam = queryString.parse(this.props.location.search.replace('?', ''))
-    const { kind, region, bucket, stsToken, accessKeyId, accessKeySecret } = urlParam
+    const { kind, region, folder: bucket, securityToken, accessKeyId, accessKeySecret, provider, endpoint } = urlParam
     if (params) {
       let { imgUrl } = params
       imgUrl = imgUrl.replace(this.props.location.search, '')
@@ -108,68 +109,208 @@ class ViewerLocalFileData extends Component {
         } else if (kind === 'folder') {
           let folderUrl = decodeURIComponent(imgUrl)
           if (bucket) {
-            const client = new OSS({
-              region,
-              bucket,
-              accessKeyId,
-              accessKeySecret,
-              stsToken,
-              timeout: '360s'
-            })
 
-            client.list({
-              prefix: folderUrl,
-              'max-keys': 1000
-            }).then(result => {
-              const files = result.objects.filter(object => object.name.indexOf('__MACOSX') === -1 && object.size > 0)
-              this.setState({
-                loadingProgress: {
-                  ...this.state.loadingProgress,
-                  total: files.length
-                }
-              })
-              let count = 0
-              Promise.all(files.map(object => {
-                return client.get(object.name).then(objects => {
-                  this.setState({
-                    loadingProgress: {
-                      ...this.state.loadingProgress,
-                      progress: ++count
-                    }
+            const retrieveFiles = () => {
+              switch (provider) {
+                case 'alicloud':
+                  const ossClient = new OSS({
+                    region,
+                    bucket,
+                    accessKeyId,
+                    accessKeySecret,
+                    stsToken: securityToken,
+                    timeout: '360s'
                   })
-                  return Promise.resolve(objects)
-                }).catch(() => {
-                  this.setState({
-                    loadingProgress: {
-                      ...this.state.loadingProgress,
-                      progress: ++count
-                    }
+
+                  return ossClient.list({
+                    prefix: folderUrl,
+                    'max-keys': 1000
+                  }).then(result => {
+                    const files = result.objects.filter(object => object.name.indexOf('__MACOSX') === -1 && object.size > 0)
+                    this.setState({
+                      loadingProgress: {
+                        ...this.state.loadingProgress,
+                        total: files.length
+                      }
+                    })
+                    let count = 0
+                    return Promise.all(files.map(object => {
+                      return ossClient.get(object.name).then(objects => {
+                        this.setState({
+                          loadingProgress: {
+                            ...this.state.loadingProgress,
+                            progress: ++count
+                          }
+                        })
+                        return Promise.resolve(objects)
+                      }).catch(() => {
+                        this.setState({
+                          loadingProgress: {
+                            ...this.state.loadingProgress,
+                            progress: ++count
+                          }
+                        })
+                        return Promise.resolve(null)
+                      })
+                    }))
+                  }).then(objects => {
+                    const contents = []
+                    objects && objects.forEach(object => {
+                      if (object) {
+                        const blobFile = new Blob([object.content])
+                        contents.push(new File([blobFile], 'name'))
+                      }
+                    })
+
+                    return Promise.resolve(contents);
+                  }).catch(e => {
+                    return Promise.reject(e)
                   })
-                  return Promise.resolve(null)
+                case 'minio':
+                  const Minio = require('minio')
+                  const endPoint = endpoint.split(':')
+                  const minioClient = new Minio.Client({
+                    endPoint: endPoint[0],
+                    port: parseInt(endPoint[1] || '80'),
+                    useSSL: false,
+                    accessKey: accessKeyId,
+                    secretKey: accessKeySecret
+                  });
+
+                  return new Promise((resolve, reject) => {
+                    const streamData = minioClient.listObjects(bucket, folderUrl, true)
+                    const listObjects = []
+                    streamData.on('data', data => {
+                      listObjects.push(data)
+                    })
+                    streamData.on('end', function() {
+                      resolve(listObjects)
+                    })
+                  }).then(files => {
+                    this.setState({
+                      loadingProgress: {
+                        ...this.state.loadingProgress,
+                        total: files.length
+                      }
+                    })
+
+                    let count = 0
+                    return Promise.all(files.map(object => {
+                      return minioClient.getObject(bucket, object.name).then(dataStream => {
+                        return new Promise((resolve, reject) => {
+
+                          const bodyParts = []
+                          let bodyLength = 0;
+                          dataStream.on('data', chunk => {
+                            bodyParts.push(chunk)
+                            bodyLength += chunk.length
+                          })
+
+                          dataStream.on('error', error => {
+                            reject(error)
+                          })
+
+                          dataStream.on('end', () => {
+                            const body = new Buffer(bodyLength);
+                            let bodyPos = 0;
+                            for (let i = 0; i < bodyParts.length; i++) {
+                              bodyParts[i].copy(body, bodyPos, 0, bodyParts[i].length);
+                              bodyPos += bodyParts[i].length;
+                            }
+
+                            this.setState({
+                              loadingProgress: {
+                                ...this.state.loadingProgress,
+                                progress: ++count
+                              }
+                            })
+                            resolve(body)
+                          })
+                        })
+                      }).catch(e => {
+                        this.setState({
+                          loadingProgress: {
+                            ...this.state.loadingProgress,
+                            progress: ++count
+                          }
+                        })
+                        return Promise.resolve(null)
+                      })
+                    }))
+                  }).then(objects => {
+                    const contents = []
+                    objects && objects.forEach(object => {
+                      if (object) {
+                        const blobFile = new Blob([object])
+                        contents.push(new File([blobFile], 'name'))
+                      }
+                    })
+
+                    return Promise.resolve(contents);
+                  })
+                case 'gcp':
+                  return new Promise((resolve, reject) => {
+                    jsonp(`${endpoint}/sirs-folder?folder=${imgUrl}`, {
+                      param: 'wrap'
+                    }, (err, data) => {
+                      if (err) {
+                        reject(err)
+                      } else {
+                        resolve(data.filter(d => d.type === 'file'))
+                      }
+                    })
+                  }).then(files => {
+                    this.setState({
+                      loadingProgress: {
+                        ...this.state.loadingProgress,
+                        total: files.length
+                      }
+                    })
+
+                    let count = 0
+                    return Promise.all(files.map(object => {
+                      return axios.get(decodeURIComponent(object.name), {
+                        responseType: 'blob',
+                        headers: {
+                          'Content-Type': 'application/dicom',
+                        }
+                      }).then(response => {
+                        this.setState({
+                          loadingProgress: {
+                            ...this.state.loadingProgress,
+                            progress: ++count
+                          }
+                        })
+                        return Promise.resolve(response.data)
+                      }).catch(() => {
+                        this.setState({
+                          loadingProgress: {
+                            ...this.state.loadingProgress,
+                            progress: ++count
+                          }
+                        })
+
+                        return Promise.resolve(null)
+                      })
+                    }))
+                  })
+                default:
+                  return Promise.reject('No provider is defined')
+              }
+            }
+
+            retrieveFiles().then(contents => {
+              return filesToStudies(contents);
+            }).then(studies => {
+              const updatedStudies = this.updateStudies(studies);
+
+              if (!updatedStudies) {
+                this.setState({
+                  loading: false
                 })
-              })).then(objects => {
-                const contents = []
-                objects && objects.forEach(object => {
-                  if (object) {
-                    const blobFile = new Blob([object.content])
-                    contents.push(new File([blobFile], 'name'))
-                  }
-                })
-
-                return filesToStudies(contents);
-              }).then(studies => {
-                const updatedStudies = this.updateStudies(studies);
-
-                if (!updatedStudies) {
-                  this.setState({
-                    loading: false
-                  })
-                } else {
-                  this.setState({ studies: updatedStudies, loading: false });
-                }
-              }).catch(e => {
-                return Promise.reject(e)
-              })
+              } else {
+                this.setState({ studies: updatedStudies, loading: false });
+              }
             }).catch(e => {
               this.setState({
                 error: e.message,
