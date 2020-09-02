@@ -74,7 +74,7 @@ class ViewerLocalFileData extends Component {
   componentDidMount () {
     const { params } = this.props.match
     const urlParam = queryString.parse(this.props.location.search.replace('?', ''))
-    const { kind, region, folder: bucket, securityToken, accessKeyId, accessKeySecret, provider, endpoint } = urlParam
+    const { kind, region, folder: bucket, securityToken, accessKeyId, accessKeySecret, provider = 'alicloud', endpoint } = urlParam
     if (params) {
       let { imgUrl } = params
       imgUrl = imgUrl.replace(this.props.location.search, '')
