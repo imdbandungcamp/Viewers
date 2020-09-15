@@ -250,7 +250,7 @@ class ViewerLocalFileData extends Component {
                   })
                 case 'gcp':
                   return new Promise((resolve, reject) => {
-                    jsonp(`${endpoint}/sirs-folder?folder=${imgUrl}`, {
+                    jsonp(`${endpoint}/${bucket}?folder=${imgUrl}`, {
                       param: 'wrap'
                     }, (err, data) => {
                       if (err) {
