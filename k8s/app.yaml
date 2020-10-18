@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: sirs-dicom-viewer-deployment
+  name: sirs-dicom-viewer-deployment
+spec:
+  selector:
+    matchLabels:
+      app: sirs-dicom-viewer-deployment
+  template:
+    metadata:
+      labels:
+        app: sirs-dicom-viewer-deployment
+    spec:
+      containers:
+        - env:
+          - name: drone-commit
+            value: {{ .COMMIT }}
+          name: sirs-dicom-viewer-deployment
+          image: {{ .image }}

@@ -20,51 +20,123 @@ steps:
 
   - name: publish_app_develop
     pull: always
-    image: plugins/docker
+    image: plugins/gcr
     settings:
-      username:
-        from_secret: DOCKER_USERNAME
-      password:
-        from_secret: DOCKER_PASSWORD
-      repo: registry-intl.ap-southeast-5.aliyuncs.com/imdglobalservices/sirs-dicom-viewer
+      json_key:
+        from_secret: google_credential
+      repo: medinesia-dev/medinesia/sirs-dicom-viewer
       tags: latest
-      registry: registry-intl.ap-southeast-5.aliyuncs.com
+      registry: asia.gcr.io
     when:
       branch: develop
       event: push
 
+  - name: deploy_gke_develop
+    image: nytimes/drone-gke
+    environment:
+      TOKEN:
+        from_secret: google_credential_json
+    settings:
+      project: medinesia-dev
+      region: asia-southeast2-c
+      cluster: medinesia-dev
+      template: k8s/app.yaml
+      skip_secret_template: true
+      namespace: staging
+      vars:
+        image: asia.gcr.io/medinesia-dev/medinesia/sirs-dicom-viewer:latest
+        app: sirs-dicom-viewer-deployment
+    when:
+      event: push
+      branch: develop
+
+  - name: deploy_gke_prerelease
+    image: nytimes/drone-gke
+    environment:
+      TOKEN:
+        from_secret: google_credential_json
+    settings:
+      project: medinesia-dev
+      region: asia-southeast2-c
+      cluster: medinesia-dev
+      template: k8s/app.yaml
+      skip_secret_template: true
+      namespace: demo
+      vars:
+        image: asia.gcr.io/medinesia-dev/medinesia/sirs-dicom-viewer:latest
+        app: sirs-dicom-viewer-deployment
+    when:
+      event: push
+      branch: develop
+
   - name: publish_app_release
     pull: always
-    image: plugins/docker
+    image: plugins/gcr
     settings:
-      username:
-        from_secret: DOCKER_USERNAME
-      password:
-        from_secret: DOCKER_PASSWORD
-      repo: registry-intl.ap-southeast-5.aliyuncs.com/imdglobalservices/sirs-dicom-viewer
+      json_key:
+        from_secret: google_credential
+      repo: medinesia-dev/medinesia/sirs-dicom-viewer
       tags:
-        - '0.2'
-      registry: registry-intl.ap-southeast-5.aliyuncs.com
+        - '0.3'
+      registry: asia.gcr.io
     when:
       branch: master
       event: push
 
-  - name: notify
-    image: plugins/slack
-    when:
-      status: [ success, failure ]
-      branch: develop
-      event: push
+  - name: deploy_gke_rspj
+    image: nytimes/drone-gke
+    environment:
+      TOKEN:
+        from_secret: google_credential_json
     settings:
-      webhook:
-        from_secret: SLACK_WEBHOOK
-      channel: sirs-dev-update
-      template: >
-        {{#success build.status}}
-          DICOM Viewer build number {{build.number}} has been successfully deployed! You may need to wait 5 minutes before it ready.
-        {{else}}
-          DICOM Viewer build number {{build.number}} is broken! Please check! <@here>
-        {{/success}}
+      project: medinesia-prod
+      region: asia-southeast2-c
+      cluster: medinesia-prod
+      template: k8s/app.yaml
+      skip_secret_template: true
+      namespace: rspj
+      vars:
+        image: asia.gcr.io/medinesia-dev/medinesia/sirs-dicom-viewer:0.3
+        app: sirs-dicom-viewer-deployment
+    when:
+      event: push
+      branch: master
+
+  - name: deploy_gke_simprug
+    image: nytimes/drone-gke
+    environment:
+      TOKEN:
+        from_secret: google_credential_json
+    settings:
+      project: medinesia-prod
+      region: asia-southeast2-c
+      cluster: medinesia-prod
+      template: k8s/app.yaml
+      skip_secret_template: true
+      namespace: simprug
+      vars:
+        image: asia.gcr.io/medinesia-dev/medinesia/sirs-dicom-viewer:0.3
+        app: sirs-dicom-viewer-deployment
+    when:
+      event: push
+      branch: master
+
+#  - name: notify
+#    image: plugins/slack
+#    when:
+#      status: [ success, failure ]
+#      branch: develop
+#      event: push
+#    settings:
+#      webhook:
+#        from_secret: SLACK_WEBHOOK
+#      channel: sirs-dev-update
+#      template: >
+#        {{#success build.status}}
+#          DICOM Viewer build number {{build.number}} has been successfully deployed! You may need to wait 5 minutes before it ready.
+#        {{else}}
+#          DICOM Viewer build number {{build.number}} is broken! Please check! <@here>
+#        {{/success}}
 
 node:
   app: frontend
